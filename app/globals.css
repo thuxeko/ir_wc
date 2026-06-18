@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+:root {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* minimalist-ui warm monochrome + muted pastels */
+  --bg: #F7F6F3;
+  --card: #FFFFFF;
+  --border: #EAEAEA;
+  --text: #111111;
+  --muted: #787774;
+  --accent-green: #EDF3EC;
+  --accent-red: #FDEBEC;
+  --accent-blue: #E1F3FE;
+  --accent-yellow: #FBF3DB;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-geist-sans);
+}
+
+/* Strict minimalist-ui rules */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.table {
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.table th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.btn {
+  background: #111111;
+  color: white;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 14px;
+  transition: all 0.1s ease;
+}
+
+.btn:hover {
+  background: #333333;
+  transform: scale(0.985);
+}
+
+/* Enhanced subtle animations per minimalist-ui taste (gentle, not flashy) */
+.match-card {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
+              box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.2s;
+}
+
+.match-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.04), 0 4px 6px -4px rgb(0 0 0 / 0.04);
+  border-color: #d1d1d1;
+}
+
+.leaderboard-row {
+  transition: background-color 0.15s ease;
+}
+
+.leaderboard-row:hover {
+  background-color: #f9f9f8;
+}
+
+.prediction-success {
+  animation: fadeSlide 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeSlide {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.flag {
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  border: 1px solid #EAEAEA;
+  object-fit: cover;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+.team-name {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.input {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  background: white;
+  font-size: 14px;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.streak {
+  background: var(--accent-yellow);
+  color: #956400;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
