@@ -4,6 +4,7 @@ import db from './db';
 import { recalculateAllScores, computeUserScore } from './scoring';
 import { requireUser, requireAdmin, hashPassword, verifyPassword, createToken, setSessionCookie, clearSessionCookie, getSession } from './auth';
 import { headers } from 'next/headers';
+import { backupDatabase, exportPredictionsCsv, exportUsersCsv, listBackups, cleanupOldBackups, createSnapshot } from './backup';
 
 async function logAudit(action: string, userId: number | null, targetType: string, targetId: string | null, details: any) {
   try {
@@ -96,6 +97,29 @@ export async function getTopStreaks(limit = 5) {
   `).all(limit);
 }
 
+export async function getCurrentUserRank() {
+  try {
+    const user = await requireUser();
+    const allUsers = db.prepare(`
+      SELECT u.id, COALESCE(us.total_points, 0) as total_points
+      FROM users u
+      LEFT JOIN user_stats us ON us.user_id = u.id
+      WHERE u.is_active = 1
+      ORDER BY COALESCE(us.total_points, 0) DESC, COALESCE(us.current_streak, 0) DESC
+    `).all() as { id: number; total_points: number }[];
+
+    const rank = allUsers.findIndex(u => u.id === user.id) + 1;
+    const me = allUsers.find(u => u.id === user.id);
+    return {
+      rank,
+      totalUsers: allUsers.length,
+      totalPoints: me?.total_points ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getMyPredictions() {
   try {
     const user = await requireUser();
@@ -144,6 +168,9 @@ export async function submitPrediction(matchId: string, homePred: number, awayPr
     throw new Error("Đã quá hạn dự đoán (phải dự đoán trước ít nhất 10 phút)");
   }
 
+  // TEMPORARY: Disable prediction updates. Once submitted, predictions are locked.
+  // TODO: Uncomment the block below if re-enabling prediction editing.
+  /*
   // Get previous if exists (for update log + edit limit)
   const previous = db.prepare("SELECT home_pred, away_pred, edit_count FROM predictions WHERE user_id = ? AND match_id = ?").get(user.id, matchId) as any;
 
@@ -156,23 +183,28 @@ export async function submitPrediction(matchId: string, homePred: number, awayPr
     });
     throw new Error(`Đã đạt giới hạn ${MAX_EDITS} lần sửa cho trận này`);
   }
+  */
+
+  const previous = db.prepare("SELECT home_pred, away_pred FROM predictions WHERE user_id = ? AND match_id = ?").get(user.id, matchId) as any;
+  if (previous) {
+    await logAudit('prediction_rejected_update_locked', user.id, 'prediction', matchId, {
+      attempted_home: homePred,
+      attempted_away: awayPred,
+      existing: previous,
+    });
+    throw new Error("Dự đoán đã được xác nhận và không thể sửa");
+  }
 
   const submittedAt = now.toISOString();
 
   db.prepare(`
     INSERT INTO predictions (user_id, match_id, home_pred, away_pred, submitted_at, edit_count)
     VALUES (?, ?, ?, ?, ?, 0)
-    ON CONFLICT(user_id, match_id) DO UPDATE SET
-      home_pred = excluded.home_pred,
-      away_pred = excluded.away_pred,
-      submitted_at = excluded.submitted_at,
-      edit_count = predictions.edit_count + 1
   `).run(user.id, matchId, homePred, awayPred, submittedAt);
 
-  await logAudit(previous ? 'prediction_updated' : 'prediction_submitted', user.id, 'prediction', matchId, {
+  await logAudit('prediction_submitted', user.id, 'prediction', matchId, {
     home: homePred,
     away: awayPred,
-    previous: previous || null,
     cutoff: cutoff.toISOString(),
   });
 
@@ -195,6 +227,7 @@ export async function getRecentAuditLogs(limit = 100) {
  */
 export async function setMatchScore(matchId: string, homeScore: number, awayScore: number, triggerFullRecalc = true) {
   const admin = await requireAdmin();
+  createSnapshot(`before-set-score-${matchId}`);
 
   db.prepare(`
     UPDATE matches 
@@ -218,6 +251,7 @@ export async function setMatchScore(matchId: string, homeScore: number, awayScor
 
 export async function triggerFullRecalc() {
   const admin = await requireAdmin();
+  createSnapshot('before-full-recalc');
   await logAudit('admin_full_recalc', admin.id, 'system', null, { note: 'full points and streak recalc' });
   return recalculateAllScores(admin.id);
 }
@@ -227,6 +261,9 @@ export async function triggerFullRecalc() {
 export async function registerAction(username: string, password: string) {
   if (!username || username.length < 3) {
     throw new Error("Username phải có ít nhất 3 ký tự");
+  }
+  if (!username.startsWith("iris.")) {
+    throw new Error("Username phải bắt đầu bằng 'iris.' (vd: iris.tuananh)");
   }
   if (!password || password.length < 4) {
     throw new Error("Mật khẩu phải có ít nhất 4 ký tự");
@@ -356,6 +393,7 @@ export async function changeMyPasswordAction(currentPassword: string, newPasswor
 }
 
 export async function syncScoresFromJsonInternal(triggeredByUserId?: number) {
+  createSnapshot('before-sync-json');
   const url = 'https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json';
 
   const res = await fetch(url, { cache: 'no-store' });
@@ -522,23 +560,77 @@ export async function getMatchDebug(matchId: string) {
   return { match, predictions };
 }
 
-export async function getSuspiciousMatches() {
+export type SuspiciousMatch = {
+  id: string;
+  home_team_id: string;
+  away_team_id: string;
+  home_score: number | null;
+  away_score: number | null;
+  status: string;
+  kickoff_at: string;
+};
+
+export type SuspiciousMatchesResult = {
+  finishedMissingScore: SuspiciousMatch[];
+  scheduledHasScore: SuspiciousMatch[];
+  finishedBeforeKickoff: SuspiciousMatch[];
+  staleScheduled: SuspiciousMatch[];
+  negativeScore: SuspiciousMatch[];
+};
+
+export async function getSuspiciousMatches(): Promise<SuspiciousMatchesResult> {
   const admin = await requireAdmin();
-  return db.prepare(`
+  const allMatches = db.prepare(`
     SELECT id, home_team_id, away_team_id, home_score, away_score, status, kickoff_at
     FROM matches
-    WHERE status = 'finished' AND (home_score IS NULL OR away_score IS NULL)
-    ORDER BY kickoff_at
-  `).all();
+  `).all() as SuspiciousMatch[];
+
+  const now = new Date();
+  const staleThresholdMs = 3 * 60 * 60 * 1000; // 3 hours
+
+  const result: SuspiciousMatchesResult = {
+    finishedMissingScore: [],
+    scheduledHasScore: [],
+    finishedBeforeKickoff: [],
+    staleScheduled: [],
+    negativeScore: []
+  };
+
+  for (const m of allMatches) {
+    const kickoff = new Date(m.kickoff_at);
+
+    if (m.status === 'finished' && (m.home_score == null || m.away_score == null)) {
+      result.finishedMissingScore.push(m);
+    }
+
+    if (m.status === 'scheduled' && (m.home_score != null || m.away_score != null)) {
+      result.scheduledHasScore.push(m);
+    }
+
+    if (m.status === 'finished' && kickoff.getTime() > now.getTime()) {
+      result.finishedBeforeKickoff.push(m);
+    }
+
+    if (m.status === 'scheduled' && kickoff.getTime() < now.getTime() - staleThresholdMs) {
+      result.staleScheduled.push(m);
+    }
+
+    if (m.home_score != null && m.away_score != null && (m.home_score < 0 || m.away_score < 0)) {
+      result.negativeScore.push(m);
+    }
+  }
+
+  return result;
 }
 
-export async function fixMatchStatus(matchId: string) {
+export async function fixMatchStatus(matchId: string, reason = 'manual reset') {
   const admin = await requireAdmin();
+  createSnapshot(`before-fix-match-${matchId}`);
   db.prepare(`
     UPDATE matches SET status = 'scheduled', home_score = NULL, away_score = NULL
     WHERE id = ?
   `).run(matchId);
-  await logAudit('admin_fix_match_status', admin.id, 'match', matchId, { note: 'Reset to scheduled due to missing score' });
+  await logAudit('admin_fix_match_status', admin.id, 'match', matchId, { reason });
   return { success: true };
 }
 
@@ -549,4 +641,44 @@ export async function debugLeaderboard() {
   const finishedMatches = (db.prepare('SELECT COUNT(*) as c FROM matches WHERE status = ?').get('finished') as { c: number }).c;
   const sampleStats = db.prepare('SELECT * FROM user_stats LIMIT 3').all();
   return { userStatsCount, usersCount, finishedMatches, sampleStats };
+}
+
+// ==================== BACKUP ====================
+
+export async function backupDatabaseAction() {
+  const admin = await requireAdmin();
+  const result = backupDatabase();
+  await logAudit('admin_backup_database', admin.id, 'system', null, { filename: result.filename, size: result.size });
+  return result;
+}
+
+export async function exportPredictionsCsvAction() {
+  const admin = await requireAdmin();
+  const result = exportPredictionsCsv();
+  await logAudit('admin_export_predictions_csv', admin.id, 'system', null, { filename: result.filename, count: result.count, size: result.size });
+  return result;
+}
+
+export async function exportUsersCsvAction() {
+  const admin = await requireAdmin();
+  const result = exportUsersCsv();
+  await logAudit('admin_export_users_csv', admin.id, 'system', null, { filename: result.filename, count: result.count, size: result.size });
+  return result;
+}
+
+export async function listBackupsAction() {
+  await requireAdmin();
+  return listBackups();
+}
+
+export async function cleanupOldBackupsAction(maxAgeDays = 14) {
+  const admin = await requireAdmin();
+  const result = cleanupOldBackups(maxAgeDays);
+  await logAudit('admin_cleanup_backups', admin.id, 'system', null, { deleted: result.deleted, maxAgeDays });
+  return result;
+}
+
+export async function createSnapshotAction(suffix: string) {
+  await requireAdmin();
+  return createSnapshot(suffix);
 }

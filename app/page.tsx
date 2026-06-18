@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Users, Trophy, Settings, LogOut, Clock, KeyRound } from 'lucide-react';
-import { getMatches, getLeaderboard, getTopStreaks, getMyPredictions, submitPrediction as submitPredictionAction, registerAction, loginAction, logoutAction, getCurrentUserAction } from '@/lib/actions';
+import { getMatches, getLeaderboard, getTopStreaks, getMyPredictions, getCurrentUserRank, submitPrediction as submitPredictionAction, registerAction, loginAction, logoutAction, getCurrentUserAction } from '@/lib/actions';
 import { toast } from '@/lib/toast';
 import { confirm } from '@/lib/confirm';
 import { showPopup } from '@/lib/popup';
@@ -103,6 +103,7 @@ export default function WC26Predict() {
   };
 
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUserRank, setCurrentUserRank] = useState<{ rank: number; totalUsers: number; totalPoints: number } | null>(null);
   const [showLogin, setShowLogin] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [authUsername, setAuthUsername] = useState("");
@@ -140,18 +141,20 @@ export default function WC26Predict() {
   useEffect(() => {
     async function load() {
       try {
-        const [matchData, lbData, streakData, myPredData, user] = await Promise.all([
+        const [matchData, lbData, streakData, myPredData, user, rankData] = await Promise.all([
           getMatches(),
           getLeaderboard(10),
           getTopStreaks(5),
           getMyPredictions(),
-          getCurrentUserAction()
+          getCurrentUserAction(),
+          getCurrentUserRank()
         ]);
         setMatches(matchData);
         setRealLeaderboard(lbData);
         setRealTopStreaks(streakData);
         setMyPredictions(enrichPredictions(myPredData));
         setCurrentUser(user);
+        setCurrentUserRank(rankData);
       } catch (e) {
         console.log("Using fallback data");
       } finally {
@@ -259,16 +262,14 @@ export default function WC26Predict() {
       toast("Đã quá hạn dự đoán cho trận này.", 'error');
       return;
     }
-    setShowPredictModal(match);
     const existing = myPredictions.find((p: any) => p.matchId === match.id);
     if (existing) {
-      const [h, a] = existing.pred.split('-').map((n: string) => parseInt(n) || 0);
-      setPredHome(h);
-      setPredAway(a);
-    } else {
-      setPredHome(0);
-      setPredAway(0);
+      toast("Bạn đã dự đoán trận này. Dự đoán không thể sửa sau khi xác nhận.", 'info');
+      return;
     }
+    setShowPredictModal(match);
+    setPredHome(0);
+    setPredAway(0);
   };
 
   const submitPrediction = async () => {
@@ -280,19 +281,18 @@ export default function WC26Predict() {
     try {
       await submitPredictionAction(showPredictModal.id, predHome, predAway);
 
-      const isUpdate = myPredictions.some((p: any) => p.matchId === showPredictModal.id);
-
       setShowPredictModal(null);
 
       toast(
-        `${isUpdate ? 'Đã cập nhật' : 'Đã ghi nhận'} dự đoán ${homeVi} ${predHome}-${predAway} ${awayVi}`,
+        `Đã ghi nhận dự đoán ${homeVi} ${predHome}-${predAway} ${awayVi}`,
         'success'
       );
 
-      // Refresh predictions + matches
-      const [fresh, freshPreds] = await Promise.all([getMatches(), getMyPredictions()]);
+      // Refresh predictions + matches + rank
+      const [fresh, freshPreds, rankData] = await Promise.all([getMatches(), getMyPredictions(), getCurrentUserRank()]);
       setMatches(fresh);
       setMyPredictions(enrichPredictions(freshPreds));
+      setCurrentUserRank(rankData);
     } catch (e: any) {
       toast(e?.message || "Lưu dự đoán thất bại (có thể đã dự đoán hoặc trận đã bắt đầu)", 'error');
     }
@@ -341,6 +341,14 @@ export default function WC26Predict() {
           <div className="flex items-center gap-4 text-sm">
             {currentUser ? (
               <>
+                {currentUserRank && (
+                  <div className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#111] text-white text-xs font-semibold shadow-sm">
+                    <span>#{currentUserRank.rank}</span>
+                    <span className="text-white/50 font-normal">/{currentUserRank.totalUsers}</span>
+                    <span className="w-px h-3 bg-white/25 mx-1"></span>
+                    <span>{currentUserRank.totalPoints}đ</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#F7F6F3] border border-[#EAEAEA]">
                   <Users className="w-4 h-4" /> {currentUser.username}
                   {currentUser.role === 'admin' && <span className="text-[10px] bg-[#1F6C9F] text-white px-1 rounded">ADMIN</span>}
@@ -397,12 +405,12 @@ export default function WC26Predict() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="card p-3 match-card hover:border-[#d1d1d1]">
                   <div className="text-[10px] text-[#787774] tracking-[1px]">ĐÚNG TỶ SỐ</div>
-                  <div className="text-3xl font-semibold tabular-nums tracking-[-1px] leading-none mt-1 text-[#346538]">+5</div>
+                  <div className="text-3xl font-semibold tabular-nums tracking-[-1px] leading-none mt-1 text-[#346538]">+3</div>
                   <div className="text-xs text-[#787774] mt-0.5">điểm</div>
                 </div>
                 <div className="card p-3 match-card hover:border-[#d1d1d1]">
                   <div className="text-[10px] text-[#787774] tracking-[1px]">ĐÚNG ĐỘI THẮNG</div>
-                  <div className="text-3xl font-semibold tabular-nums tracking-[-1px] leading-none mt-1 text-[#1F6C9F]">+2</div>
+                  <div className="text-3xl font-semibold tabular-nums tracking-[-1px] leading-none mt-1 text-[#1F6C9F]">+1</div>
                   <div className="text-xs text-[#787774] mt-0.5">điểm</div>
                 </div>
                 <div className="card p-3 match-card hover:border-[#d1d1d1]">
@@ -1027,6 +1035,11 @@ export default function WC26Predict() {
                   className="input w-full" 
                   required 
                 />
+                {!showLogin && (
+                  <div className="text-[10px] text-[#787774] mt-1">
+                    Username công ty bắt đầu bằng <span className="font-mono">iris.</span> (vd: iris.tuananh)
+                  </div>
+                )}
               </div>
               <div>
                 <div className="text-xs text-[#787774] mb-1">Mật khẩu</div>
@@ -1176,28 +1189,15 @@ export default function WC26Predict() {
               </div>
             </div>
 
-            <div className="flex gap-3">
-              <button onClick={() => setShowPredictModal(null)} className="flex-1 py-2.5 border border-[#EAEAEA] rounded text-sm">Hủy</button>
-              {(() => {
-                const ex = myPredictions.find((p: any) => p.matchId === showPredictModal.id);
-                const editsLeft = ex ? 10 - ex.editCount : 10;
-                const exhausted = editsLeft <= 0;
-                return (
-                  <button onClick={submitPrediction} disabled={exhausted} className="flex-1 py-2.5 btn disabled:opacity-50 disabled:cursor-not-allowed">
-                    {ex ? 'Cập nhật dự đoán' : 'Gửi dự đoán'}
-                  </button>
-                );
-              })()}
-            </div>
-            {(() => {
-              const ex = myPredictions.find((p: any) => p.matchId === showPredictModal.id);
-              const editsLeft = ex ? 10 - ex.editCount : 10;
-              return (
-                <div className="text-[10px] text-[#787774] text-center mt-3">
-                  Có thể sửa cho đến trước giờ đá.{ex ? ` Còn ${Math.max(0, editsLeft)}/10 lần sửa.` : ''}
-                </div>
-              );
-            })()}
+              <div className="flex gap-3">
+                <button onClick={() => setShowPredictModal(null)} className="flex-1 py-2.5 border border-[#EAEAEA] rounded text-sm">Hủy</button>
+                <button onClick={submitPrediction} className="flex-1 py-2.5 btn">
+                  Gửi dự đoán
+                </button>
+              </div>
+              <div className="text-[10px] text-[#787774] text-center mt-3">
+                Dự đoán chỉ được gửi một lần và không thể sửa sau khi xác nhận.
+              </div>
           </div>
         </div>
       )}

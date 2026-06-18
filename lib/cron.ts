@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { syncScoresFromJsonInternal } from './actions';
+import { backupDatabase, exportPredictionsCsv, cleanupOldBackups } from './backup';
 import db from './db';
 
 let isRunning = false;
@@ -45,5 +46,19 @@ export function startCronJobs() {
     }
   });
 
+  // Daily backup at 03:00
+  cron.schedule('0 3 * * *', () => {
+    console.log('[cron] Starting daily backup at', new Date().toISOString());
+    try {
+      const dbResult = backupDatabase();
+      const csvResult = exportPredictionsCsv();
+      const cleanup = cleanupOldBackups(14);
+      console.log('[cron] Backup completed:', dbResult.filename, csvResult.filename, 'deleted:', cleanup.deleted.length);
+    } catch (err: any) {
+      console.error('[cron] Backup failed:', err.message);
+    }
+  });
+
   console.log('[cron] Auto-sync scheduled every hour at :05');
+  console.log('[cron] Daily backup scheduled at 03:00');
 }

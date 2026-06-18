@@ -27,15 +27,22 @@ export default function AdminCMS() {
 
   const [pwResetUser, setPwResetUser] = useState<any>(null);
   const [pwResetValue, setPwResetValue] = useState("");
-  const [suspiciousMatches, setSuspiciousMatches] = useState<any[]>([]);
+  const [suspiciousMatches, setSuspiciousMatches] = useState<any>({
+    finishedMissingScore: [],
+    scheduledHasScore: [],
+    finishedBeforeKickoff: [],
+    staleScheduled: [],
+    negativeScore: []
+  });
   const [debugMatchId, setDebugMatchId] = useState("");
   const [debugMatchResult, setDebugMatchResult] = useState<any>(null);
+  const [backups, setBackups] = useState<any[]>([]);
 
   // Load data
   useEffect(() => {
     (async () => {
       try {
-        const { getCurrentUserAction, getAllUsersAction, getMatches, getRecentAuditLogs, getCronLogs, getSuspiciousMatches } = await import('@/lib/actions');
+        const { getCurrentUserAction, getAllUsersAction, getMatches, getRecentAuditLogs, getCronLogs, getSuspiciousMatches, listBackupsAction } = await import('@/lib/actions');
         const user = await getCurrentUserAction();
         
         if (!user || user.role !== 'admin') {
@@ -45,12 +52,13 @@ export default function AdminCMS() {
         
         setCurrentUser(user);
         
-        const [users, matchData, logs, cron, suspicious] = await Promise.all([
+        const [users, matchData, logs, cron, suspicious, backupList] = await Promise.all([
           getAllUsersAction(),
           getMatches(),
           getRecentAuditLogs(100),
           getCronLogs(20),
-          getSuspiciousMatches()
+          getSuspiciousMatches(),
+          listBackupsAction()
         ]);
         
         setAdminUsers(users);
@@ -58,6 +66,7 @@ export default function AdminCMS() {
         setAuditLogs(logs);
         setCronLogs(cron);
         setSuspiciousMatches(suspicious);
+        setBackups(backupList);
       } catch (e) {
         console.error(e);
         router.push('/');
@@ -369,54 +378,92 @@ export default function AdminCMS() {
             </div>
 
             {/* Suspicious matches */}
-            <div className="mb-4">
-              <div className="font-semibold text-sm mb-2">Trận bất thường (finished nhưng không có tỷ số)</div>
-              {suspiciousMatches.length > 0 && (
-                <button 
-                  onClick={async () => {
-                    if (!await confirm(`Reset ${suspiciousMatches.length} trận bất thường về 'scheduled'?`)) return;
-                    const { fixMatchStatus } = await import('@/lib/actions');
-                    for (const m of suspiciousMatches) {
-                      await fixMatchStatus(m.id);
-                    }
-                    toast(`Đã reset ${suspiciousMatches.length} trận về scheduled`, 'success');
-                    const { getSuspiciousMatches, getMatches } = await import('@/lib/actions');
-                    setSuspiciousMatches(await getSuspiciousMatches());
-                    setMatches(await getMatches());
-                  }}
-                  className="mb-2 text-xs px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-                >
-                  Reset tất cả {suspiciousMatches.length} trận bất thường
-                </button>
-              )}
-              {suspiciousMatches.length === 0 ? (
-                <div className="text-xs text-[#787774]">Không phát hiện trận nào bất thường.</div>
-              ) : (
-                <div className="space-y-2">
-                  {suspiciousMatches.map((m: any) => (
-                    <div key={m.id} className="flex items-center justify-between border border-red-200 bg-red-50 rounded p-2 text-sm">
-                      <div>
-                        <span className="font-medium">#{m.id}</span> {m.home_team_id} vs {m.away_team_id} — 
-                        <span className="text-red-600">status='finished' nhưng score=null</span>
-                      </div>
-                      <button 
+            <div className="mb-4 space-y-4">
+              {(() => {
+                const total =
+                  suspiciousMatches.finishedMissingScore.length +
+                  suspiciousMatches.scheduledHasScore.length +
+                  suspiciousMatches.finishedBeforeKickoff.length +
+                  suspiciousMatches.staleScheduled.length +
+                  suspiciousMatches.negativeScore.length;
+
+                const renderGroup = (
+                  title: string,
+                  items: any[],
+                  reason: string,
+                  allowReset: boolean,
+                  note?: string
+                ) => (
+                  <div>
+                    <div className="font-semibold text-sm mb-2">{title} ({items.length})</div>
+                    {note && <div className="text-[10px] text-[#787774] mb-2">{note}</div>}
+                    {allowReset && items.length > 0 && (
+                      <button
                         onClick={async () => {
-                          if (!await confirm(`Reset trận #${m.id} về 'scheduled'?`)) return;
+                          if (!await confirm(`Reset ${items.length} trận trong nhóm này về 'scheduled'?`)) return;
                           const { fixMatchStatus } = await import('@/lib/actions');
-                          await fixMatchStatus(m.id);
-                          toast(`Đã reset trận #${m.id} về scheduled`, 'success');
+                          for (const m of items) {
+                            await fixMatchStatus(m.id, reason);
+                          }
+                          toast(`Đã reset ${items.length} trận về scheduled`, 'success');
                           const { getSuspiciousMatches, getMatches } = await import('@/lib/actions');
                           setSuspiciousMatches(await getSuspiciousMatches());
                           setMatches(await getMatches());
                         }}
-                        className="text-xs px-2 py-0.5 border border-red-300 rounded hover:bg-white"
+                        className="mb-2 text-xs px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
                       >
-                        Reset về scheduled
+                        Reset tất cả {items.length} trận
                       </button>
+                    )}
+                    {items.length === 0 ? (
+                      <div className="text-xs text-[#787774]">Không phát hiện.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {items.map((m: any) => (
+                          <div key={`${reason}-${m.id}`} className="flex items-center justify-between border border-red-200 bg-red-50 rounded p-2 text-sm">
+                            <div>
+                              <span className="font-medium">#{m.id}</span> {m.home_team_id} vs {m.away_team_id}
+                              {m.home_score != null && m.away_score != null && (
+                                <span className="font-mono"> ({m.home_score}-{m.away_score})</span>
+                              )}
+                              <span className="text-[#787774] ml-1">— {new Date(m.kickoff_at).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</span>
+                            </div>
+                            {allowReset && (
+                              <button
+                                onClick={async () => {
+                                  if (!await confirm(`Reset trận #${m.id} về 'scheduled'?`)) return;
+                                  const { fixMatchStatus } = await import('@/lib/actions');
+                                  await fixMatchStatus(m.id, reason);
+                                  toast(`Đã reset trận #${m.id} về scheduled`, 'success');
+                                  const { getSuspiciousMatches, getMatches } = await import('@/lib/actions');
+                                  setSuspiciousMatches(await getSuspiciousMatches());
+                                  setMatches(await getMatches());
+                                }}
+                                className="text-xs px-2 py-0.5 border border-red-300 rounded hover:bg-white"
+                              >
+                                Reset về scheduled
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+
+                return (
+                  <>
+                    <div className="text-xs text-[#787774]">
+                      Tổng phát hiện: <span className="font-medium text-red-600">{total}</span> trận bất thường
                     </div>
-                  ))}
-                </div>
-              )}
+                    {renderGroup('Finished nhưng thiếu tỷ số', suspiciousMatches.finishedMissingScore, 'finished_missing_score', true)}
+                    {renderGroup('Scheduled nhưng đã có tỷ số', suspiciousMatches.scheduledHasScore, 'scheduled_has_score', true)}
+                    {renderGroup('Finished trước giờ kickoff', suspiciousMatches.finishedBeforeKickoff, 'finished_before_kickoff', true)}
+                    {renderGroup('Scheduled quá hạn (>3h sau kickoff)', suspiciousMatches.staleScheduled, 'stale_scheduled', false, 'Chỉ cảnh báo, cần kiểm tra thủ công')}
+                    {renderGroup('Tỷ số âm', suspiciousMatches.negativeScore, 'negative_score', true)}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Manual match lookup */}
@@ -553,6 +600,110 @@ export default function AdminCMS() {
               </div>
             )}
             <div className="text-[10px] text-[#787774] mt-2">Click Details để xem full. Server time, immutable.</div>
+          </div>
+
+          {/* Backup & Restore */}
+          <div className="card p-6 lg:col-span-2">
+            <div className="font-semibold mb-3">Backup & Restore</div>
+            <div className="text-xs text-[#787774] mb-3">
+              Backup file SQLite hoặc export CSV để khôi phục dữ liệu khi có lỗi. Auto-snapshot cũng được tạo trước mỗi thao tác nguy hiểm.
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button
+                onClick={async () => {
+                  try {
+                    const { backupDatabaseAction } = await import('@/lib/actions');
+                    const result = await backupDatabaseAction();
+                    toast(`Đã backup DB: ${result.filename} (${(result.size / 1024).toFixed(1)} KB)`, 'success');
+                    const { listBackupsAction } = await import('@/lib/actions');
+                    setBackups(await listBackupsAction());
+                  } catch (e: any) {
+                    toast('Backup thất bại: ' + (e.message || 'Lỗi'), 'error');
+                  }
+                }}
+                className="btn text-sm"
+              >
+                Backup DB ngay
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const { exportPredictionsCsvAction } = await import('@/lib/actions');
+                    const result = await exportPredictionsCsvAction();
+                    toast(`Đã export ${result.count} dự đoán ra ${result.filename}`, 'success');
+                    const { listBackupsAction } = await import('@/lib/actions');
+                    setBackups(await listBackupsAction());
+                  } catch (e: any) {
+                    toast('Export CSV thất bại: ' + (e.message || 'Lỗi'), 'error');
+                  }
+                }}
+                className="btn text-sm"
+              >
+                Export predictions CSV
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const { exportUsersCsvAction } = await import('@/lib/actions');
+                    const result = await exportUsersCsvAction();
+                    toast(`Đã export ${result.count} users ra ${result.filename}`, 'success');
+                    const { listBackupsAction } = await import('@/lib/actions');
+                    setBackups(await listBackupsAction());
+                  } catch (e: any) {
+                    toast('Export CSV thất bại: ' + (e.message || 'Lỗi'), 'error');
+                  }
+                }}
+                className="btn text-sm"
+              >
+                Export users CSV
+              </button>
+              <button
+                onClick={async () => {
+                  if (!await confirm('Xóa các backup cũ hơn 14 ngày?')) return;
+                  try {
+                    const { cleanupOldBackupsAction } = await import('@/lib/actions');
+                    const result = await cleanupOldBackupsAction();
+                    toast(`Đã xóa ${result.deleted.length} file backup cũ`, 'success');
+                    const { listBackupsAction } = await import('@/lib/actions');
+                    setBackups(await listBackupsAction());
+                  } catch (e: any) {
+                    toast('Dọn dẹp thất bại: ' + (e.message || 'Lỗi'), 'error');
+                  }
+                }}
+                className="text-sm px-3 py-1.5 border border-[#EAEAEA] rounded hover:bg-white"
+              >
+                Xóa backup {'>'}14 ngày
+              </button>
+            </div>
+
+            <div className="text-xs font-semibold mb-2">Danh sách backup ({backups.length})</div>
+            <div className="overflow-auto max-h-60 border border-[#EAEAEA] rounded">
+              <table className="table text-xs w-full">
+                <thead>
+                  <tr>
+                    <th>File</th>
+                    <th>Thờ gian</th>
+                    <th>Kích thước</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backups.length === 0 && (
+                    <tr><td colSpan={3} className="text-center py-4 text-[#787774]">Chưa có backup.</td></tr>
+                  )}
+                  {backups.map((b: any) => (
+                    <tr key={b.filename} className="border-t">
+                      <td className="font-mono text-[10px]">{b.filename}</td>
+                      <td>{new Date(b.createdAt).toLocaleString('vi-VN')}</td>
+                      <td>{(b.size / 1024).toFixed(1)} KB</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="text-[10px] text-[#787774] mt-2">
+              File backup lưu tại <span className="font-mono">data/backups/</span>. Để restore, dừng app và copy file .db ghi đè lên data/wc2026.db.
+            </div>
           </div>
 
           {/* Cron Logs */}

@@ -2,15 +2,15 @@ import db from './db';
 
 /**
  * Scoring rules:
- * - Exact score: 5 points
- * - Correct winner (but wrong score): 2 points
+ * - Exact score: 3 points
+ * - Correct winner (but wrong score): 1 point
  * - Streak bonuses (added when milestone hit):
  *   3 in a row: +3
  *   5 in a row: +5
  *   7 in a row: +8
  * - Any wrong prediction OR no prediction on a finished match → streak resets to 0 immediately.
  *
- * "Correct" for streak = exact score only (base === 5). Correct winner (+2) does NOT extend streak.
+ * "Correct" for streak = exact score only (base === 3). Correct winner (+1) does NOT extend streak.
  */
 
 export interface MatchResult {
@@ -27,17 +27,17 @@ export interface UserPrediction {
 }
 
 export interface ScoreBreakdown {
-  base: number;        // 5 or 2 or 0
+  base: number;        // 3 or 1 or 0
   streakBonus: number; // 0, 3, 5 or 8 (only on the match that hit the milestone)
   total: number;
   isCorrect: boolean;  // for streak continuity
 }
 
 export function calculateBasePoints(home: number, away: number, predHome: number, predAway: number): number {
-  if (home === predHome && away === predAway) return 5;
+  if (home === predHome && away === predAway) return 3;
   const winner = Math.sign(home - away);
   const predWinner = Math.sign(predHome - predAway);
-  if (winner === predWinner) return 2;
+  if (winner === predWinner) return 1;
   return 0;
 }
 
@@ -81,7 +81,7 @@ export function computeUserScore(
       pred.homePred, pred.awayPred
     );
 
-    const isCorrect = base === 5;
+    const isCorrect = base === 3;
 
     if (isCorrect) {
       currentStreak += 1;

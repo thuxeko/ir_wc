@@ -8,3 +8,10 @@ Dockerfile
 docker-compose.yml
 README.md
 *.md
+
+# Do not copy local SQLite database into Docker image.
+# The app will create an empty database on first run.
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/backups/*
