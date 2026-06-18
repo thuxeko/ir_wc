@@ -400,23 +400,37 @@ export default function WC26Predict() {
               <h1 className="text-5xl font-semibold tracking-[-1.5px] leading-none">Dự đoán tỷ số.<br />Ghi điểm. Tranh ngôi đầu.</h1>
             </div>
 
-            {/* Right: Bento-style rule cards - fills space, visual hierarchy, follows minimalist-ui bento + muted pastels */}
+            {/* Right: Top 3 leaderboard podium - glory stand with medal ranks */}
             <div className="lg:col-span-5">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="card p-3 match-card hover:border-[#d1d1d1]">
-                  <div className="text-[10px] text-[#787774] tracking-[1px]">ĐÚNG TỶ SỐ</div>
-                  <div className="text-3xl font-semibold tabular-nums tracking-[-1px] leading-none mt-1 text-[#346538]">+3</div>
-                  <div className="text-xs text-[#787774] mt-0.5">điểm</div>
-                </div>
-                <div className="card p-3 match-card hover:border-[#d1d1d1]">
-                  <div className="text-[10px] text-[#787774] tracking-[1px]">ĐÚNG ĐỘI THẮNG</div>
-                  <div className="text-3xl font-semibold tabular-nums tracking-[-1px] leading-none mt-1 text-[#1F6C9F]">+1</div>
-                  <div className="text-xs text-[#787774] mt-0.5">điểm</div>
-                </div>
-                <div className="card p-3 match-card hover:border-[#d1d1d1]">
-                  <div className="text-[10px] text-[#787774] tracking-[1px]">STREAK</div>
-                  <div className="text-3xl font-semibold tabular-nums tracking-[-1px] leading-none mt-1">+3 / +5 / +8</div>
-                  <div className="text-xs text-[#787774] mt-0.5">điểm thưởng</div>
+              <div className="card p-4 match-card">
+                <div className="flex items-end justify-center gap-3 h-40">
+                  {/* Top 2 */}
+                  <div className="flex-1 flex flex-col items-center min-w-0">
+                    <div className="text-sm font-semibold mb-1 text-center truncate w-full">{realLeaderboard[1]?.username || '—'}</div>
+                    <div className="text-xs text-[#787774] mb-4">{realLeaderboard[1]?.total_points ?? 0} điểm</div>
+                    <div className="relative w-full">
+                      <div className="absolute -top-2.0 left-1/2 -translate-x-1/2 text-2xl z-10">🥈</div>
+                      <div className="w-full bg-[#C0C0C0]/15 rounded-t-lg h-24 border-t-4 border-[#C0C0C0]"></div>
+                    </div>
+                  </div>
+                  {/* Top 1 */}
+                  <div className="flex-1 flex flex-col items-center min-w-0">
+                    <div className="text-sm font-semibold mb-1 text-center truncate w-full">{realLeaderboard[0]?.username || '—'}</div>
+                    <div className="text-xs text-[#787774] mb-4">{realLeaderboard[0]?.total_points ?? 0} điểm</div>
+                    <div className="relative w-full">
+                      <div className="absolute -top-2.0 left-1/2 -translate-x-1/2 text-3xl z-10">🥇</div>
+                      <div className="w-full bg-[#FFD700]/15 rounded-t-lg h-32 border-t-4 border-[#FFD700]"></div>
+                    </div>
+                  </div>
+                  {/* Top 3 */}
+                  <div className="flex-1 flex flex-col items-center min-w-0">
+                    <div className="text-sm font-semibold mb-1 text-center truncate w-full">{realLeaderboard[2]?.username || '—'}</div>
+                    <div className="text-xs text-[#787774] mb-4">{realLeaderboard[2]?.total_points ?? 0} điểm</div>
+                    <div className="relative w-full">
+                      <div className="absolute -top-2.0 left-1/2 -translate-x-1/2 text-2xl z-10">🥉</div>
+                      <div className="w-full bg-[#CD7F32]/15 rounded-t-lg h-16 border-t-4 border-[#CD7F32]"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -507,7 +521,7 @@ export default function WC26Predict() {
                 {isLoading && <div className="text-[#787774] py-4">Đang tải...</div>}
                 
                 {!isLoading && (() => {
-                  // Dùng thời gian thực (live `now` state, cập nhật mỗi phút) để tính "VN hôm nay" và "VN ngày mai".
+                  // Dùng thời gian thực (live `now` state, cập nhật mỗi phút) để tính "VN hôm nay" và "2 ngày tới".
                   // Lọc các trận theo VN date của kickoff_at dùng timezone Asia/Ho_Chi_Minh (không cộng thủ công 7h).
                   function toVNDateStr(date: Date): string {
                     return date.toLocaleDateString('en-CA', {
@@ -515,16 +529,23 @@ export default function WC26Predict() {
                     });  // en-CA gives YYYY-MM-DD
                   }
 
+                  function formatVNDateHeading(dateStr: string): string {
+                    const [y, m, d] = dateStr.split('-').map(Number);
+                    return `${d}/${m}`;
+                  }
+
                   const vnTodayStr = toVNDateStr(now);
 
                   const vnTomorrowBase = new Date(now.getTime() + 24 * 60 * 60 * 1000);
                   const vnTomorrowStr = toVNDateStr(vnTomorrowBase);
+                  const vnPlus2Base = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+                  const vnPlus2Str = toVNDateStr(vnPlus2Base);
 
                   const relevantMatches = upcomingMatches
                     .filter((m: any) => {
                       const kickoff = new Date(m.kickoff_at);
                       const mVNDate = toVNDateStr(kickoff);
-                      return (mVNDate === vnTodayStr || mVNDate === vnTomorrowStr) && m.status === 'scheduled';
+                      return (mVNDate === vnTodayStr || mVNDate === vnTomorrowStr || mVNDate === vnPlus2Str) && m.status === 'scheduled';
                     })
                     .sort((a: any, b: any) => new Date(a.kickoff_at).getTime() - new Date(b.kickoff_at).getTime());
 
@@ -532,60 +553,77 @@ export default function WC26Predict() {
                   const openMatches = relevantMatches.filter((m: any) => getMinutesLeft(m.kickoff_at) > 0);
                   const lockedMatches = relevantMatches.filter((m: any) => getMinutesLeft(m.kickoff_at) <= 0);
 
+                  // Nhóm các trận mở dự đoán theo ngày thi đấu (VN date)
+                  const openMatchesByDate = openMatches.reduce((acc: Record<string, any[]>, match: any) => {
+                    const dateKey = toVNDateStr(new Date(match.kickoff_at));
+                    if (!acc[dateKey]) acc[dateKey] = [];
+                    acc[dateKey].push(match);
+                    return acc;
+                  }, {});
+
                   return (
                     <>
-                      {/* Mở dự đoán - các trận hôm nay và ngày mai (theo VN kickoff date) */}
+                      {/* Mở dự đoán - các trận hôm nay và 2 ngày tới (theo VN kickoff date) */}
                       <div>
                         <div className="font-semibold text-sm mb-2 flex items-center gap-2">
                           Mở dự đoán
                           <span className="text-xs text-[#787774]">({openMatches.length})</span>
                         </div>
+                        <div className="text-[10px] text-[#787774] mb-2">
+                          Chỉ mở dự đoán cho các trận có ngày thi đấu (theo giờ VN) rơi vào hôm nay hoặc 2 ngày tới. 
+                          Trận xa hơn sẽ tự động xuất hiện khi đến ngày. Mỗi trận vẫn tự khóa trước 10 phút trước giờ bắt đầu (giờ server).
+                        </div>
                         {openMatches.length === 0 && (
-                          <div className="text-xs text-[#787774] py-2">Không có trận nào còn mở dự đoán cho hôm nay/ngày mai.</div>
+                          <div className="text-xs text-[#787774] py-2">Không có trận nào còn mở dự đoán cho hôm nay/2 ngày tới.</div>
                         )}
-                        {openMatches.map((match: any) => {
-                          const homeDisplay = match.home_name_vi || match.home_name || match.home_team_label || 'TBD';
-                          const awayDisplay = match.away_name_vi || match.away_name || match.away_team_label || 'TBD';
-                          const timeStr = formatVNTime(match.kickoff_at);
-                          const dateStr = formatShortVNDate(match.kickoff_at);
-                          return (
-                            <div key={match.id} className="match-card card p-5 flex items-center gap-4 mb-3">
-                              {/* Aligned time column */}
-                              <div className="w-16 shrink-0 text-right">
-                                <div className="font-mono text-sm text-[#787774]">{timeStr}</div>
-                                <div className="text-[10px] text-[#787774]">{dateStr}</div>
-                              </div>
-                              <div className="flex-1 grid grid-cols-[1fr_auto_1fr] items-center gap-3 min-w-0">
-                                <div className="flex items-center justify-end gap-2 min-w-0">
-                                  <span className="team-name text-lg truncate">{homeDisplay}</span>
-                                  {match.home_flag && <img src={match.home_flag} className="flag !mr-0" alt="" />}
-                                </div>
-                                <span className="text-[#787774] text-sm w-8 text-center">vs</span>
-                                <div className="flex items-center justify-start gap-2 min-w-0">
-                                  {match.away_flag && <img src={match.away_flag} className="flag !mr-0" alt="" />}
-                                  <span className="team-name text-lg truncate">{awayDisplay}</span>
-                                </div>
-                              </div>
+                        {Object.entries(openMatchesByDate).map(([dateStr, matches]) => (
+                          <div key={dateStr}>
+                            <div className="font-semibold text-sm mt-3 mb-2">Ngày {formatVNDateHeading(dateStr)}</div>
+                            {matches.map((match: any) => {
+                              const homeDisplay = match.home_name_vi || match.home_name || match.home_team_label || 'TBD';
+                              const awayDisplay = match.away_name_vi || match.away_name || match.away_team_label || 'TBD';
+                              const timeStr = formatVNTime(match.kickoff_at);
+                              const matchDateStr = formatShortVNDate(match.kickoff_at);
+                              return (
+                                <div key={match.id} className="match-card card p-5 flex items-center gap-4 mb-3">
+                                  {/* Aligned time column */}
+                                  <div className="w-16 shrink-0 text-right">
+                                    <div className="font-mono text-sm text-[#787774]">{timeStr}</div>
+                                    <div className="text-[10px] text-[#787774]">{matchDateStr}</div>
+                                  </div>
+                                  <div className="flex-1 grid grid-cols-[1fr_auto_1fr] items-center gap-3 min-w-0">
+                                    <div className="flex items-center justify-end gap-2 min-w-0">
+                                      <span className="team-name text-lg truncate">{homeDisplay}</span>
+                                      {match.home_flag && <img src={match.home_flag} className="flag !mr-0" alt="" />}
+                                    </div>
+                                    <span className="text-[#787774] text-sm w-8 text-center">vs</span>
+                                    <div className="flex items-center justify-start gap-2 min-w-0">
+                                      {match.away_flag && <img src={match.away_flag} className="flag !mr-0" alt="" />}
+                                      <span className="team-name text-lg truncate">{awayDisplay}</span>
+                                    </div>
+                                  </div>
 
-                              <button 
-                                onClick={() => openPredict(match)}
-                                className="btn text-sm px-6 py-2.5 whitespace-nowrap flex-shrink-0"
-                              >
-                                Dự đoán
-                              </button>
-                            </div>
-                          );
-                        })}
+                                  <button
+                                    onClick={() => openPredict(match)}
+                                    className="btn text-sm px-6 py-2.5 whitespace-nowrap flex-shrink-0"
+                                  >
+                                    Dự đoán
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
                       </div>
 
-                      {/* Đã khóa dự đoán - các trận hôm nay/ngày mai đã hết hạn cá nhân + finished hôm nay */}
+                      {/* Đã khóa dự đoán - các trận hôm nay/2 ngày tới đã hết hạn cá nhân + finished hôm nay */}
                       <div>
                         <div className="font-semibold text-sm mb-2 flex items-center gap-2">
                           Đã khóa dự đoán
                           <span className="text-xs text-[#787774]">({lockedMatches.length + todayFinishedMatches.length})</span>
                         </div>
                         {lockedMatches.length === 0 && todayFinishedMatches.length === 0 && (
-                          <div className="text-xs text-[#787774] py-2">Chưa có trận bị khóa cho hôm nay/ngày mai.</div>
+                          <div className="text-xs text-[#787774] py-2">Chưa có trận bị khóa cho hôm nay/2 ngày tới.</div>
                         )}
                         {[...lockedMatches, ...todayFinishedMatches].map((match: any) => {
                           const homeDisplay = match.home_name_vi || match.home_name || match.home_team_label || 'TBD';
@@ -622,11 +660,7 @@ export default function WC26Predict() {
                         })}
                       </div>
 
-                      {relevantMatches.length === 0 && <div className="text-[#787774] py-8 text-center">Chưa có trận nào cho hôm nay/ngày mai.</div>}
-                      <div className="text-[10px] text-[#787774] mt-1">
-                        Chỉ mở dự đoán cho các trận có ngày thi đấu (theo giờ VN) rơi vào hôm nay hoặc ngày mai. 
-                        Trận xa hơn sẽ tự động xuất hiện khi đến ngày. Mỗi trận vẫn tự khóa trước 10 phút trước giờ bắt đầu (giờ server).
-                      </div>
+                      {relevantMatches.length === 0 && <div className="text-[#787774] py-8 text-center">Chưa có trận nào cho hôm nay/2 ngày tới.</div>}
                     </>
                   );
                 })()}
